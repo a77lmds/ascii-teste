@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Árvore de Natal em ASCII 3D</title>
+<style>
+  :root { --bg:#04060c; --fg:#cfd8e8; --muted:#6c7a93; color-scheme: dark;
+    box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#04060c; --fg:#cfd8e8; --muted:#6c7a93; } }
+  :root[data-theme="dark"] { --bg:#04060c; --fg:#cfd8e8; --muted:#6c7a93; }
+  html, body { height:100%; margin:0; background:var(--bg); color:var(--fg); overflow:hidden; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #bar { position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:space-between; align-items:center; gap:12px;
+    padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px)); font:14px/1.3 "Courier New", ui-monospace, monospace; color:var(--muted); }
+  #cap { min-height:1.3em; }
+  button { font:inherit; color:var(--fg); background:transparent; border:1px solid var(--muted); padding:6px 12px; cursor:pointer; border-radius:4px; }
+  button:hover, button:focus-visible { border-color:var(--fg); outline:none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="bar"><span id="cap"></span><button id="rs">Reiniciar</button></div>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d'), cap = document.getElementById('cap');
+  let W, H, fs, cw, chh, cols, rows, dpr;
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fs = Math.max(5, Math.min(W / 170, H / 85)); cw = fs * 0.6; chh = fs;
+    cols = Math.floor(W / cw); rows = Math.floor(H / chh);
+    ctx.font = fs + 'px "Courier New", ui-monospace, monospace'; ctx.textBaseline = 'top';
+  }
+  addEventListener('resize', resize); resize();
+
+  // ---------- helpers ----------
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const lerp = (a, b, t) => a + (b - a) * t, clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+  const ease = t => 1 - Math.pow(1 - clamp(t), 3);
+  const HT = 20; // altura da árvore
+
+  // ---------- geometria ----------
+  const tiers = [[3,9,7.2,3.2],[7,13,5.8,2.4],[11,17,4.3,1.3],[15,20,2.7,0]];
+  const foliage = [], trunk = [], ornaments = [], stars = [], ground = [];
+  const greens = ['#1f8a3b','#2fb552','#176b2e','#46d06a'];
+  tiers.forEach(([y0,y1,r0,r1]) => {
+    for (let y = y0; y <= y1; y += 0.11) {
+      const r = lerp(r0, r1, (y - y0) / (y1 - y0)), n = Math.max(1, Math.floor(r * 17));
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * 6.283 + rnd() * 0.3, rr = r * (0.9 + rnd() * 0.15);
+        foliage.push({ x: Math.cos(a) * rr, y, z: Math.sin(a) * rr, ch: '*"^&'[Math.floor(rnd() * 4)], c: greens[Math.floor(rnd() * 4)] });
+      }
+    }
+  });
+  for (let y = 0; y < 4; y += 0.12) for (let i = 0; i < 26; i++) {
+    const a = i / 26 * 6.283; trunk.push({ x: Math.cos(a) * 1.2, y, z: Math.sin(a) * 1.2, ch: '#', c: '#8a5a2b' });
+  }
+  const oc = ['#ff3b3b','#ffd23f','#4aa8ff','#ff5fd2','#ffffff','#ff9a3c'];
+  for (let k = 0; k < 30; k++) {
+    const t = tiers[k % 4], y = lerp(t[0] + 0.8, t[1] - 0.6, rnd());
+    const r = lerp(t[2], t[3], (y - t[0]) / (t[1] - t[0])) * 1.08, a = rnd() * 6.283;
+    ornaments.push({ x: Math.cos(a) * r, y, z: Math.sin(a) * r, c: oc[k % oc.length], t0: 8.5 + k * 0.22, ph: rnd() * 6 });
+  }
+  const T_STAR = 8.5 + 30 * 0.22 + 0.3;
+  // pisca-pisca: fio em espiral com lâmpadas
+  const lights = [];
+  const radAt = y => { let r = 0; tiers.forEach(([y0,y1,r0,r1]) => { if (y >= y0 && y <= y1) r = Math.max(r, lerp(r0, r1, (y - y0) / (y1 - y0))); }); return r; };
+  for (let s = 0, k = 0; s <= 1; s += 0.0008, k++) {
+    const y = 3.6 + s * 15.6, a = s * 6.283 * 8, r = radAt(y) * 1.09, b = Math.floor(k / 28);
+    lights.push({ x: Math.cos(a) * r, y, z: Math.sin(a) * r, bulb: k % 28 === 0, g: b % 3, c: oc[b % oc.length], s });
+  }
+  for (let i = 0; i < 160; i++) stars.push({ x: rnd(), y: rnd() * 0.75, ph: rnd() * 6, ch: '.+\'`'[Math.floor(rnd() * 4)] });
+  for (let i = 0; i < 2600; i++) {
+    const a = rnd() * 6.283, r = Math.sqrt(rnd()) * 17; ground.push({ x: Math.cos(a) * r, y: 0, z: Math.sin(a) * r, d: r });
+  }
+  // presentes
+  const pc = [['#e53935','#ffd54f'],['#1e88e5','#f5f5f5'],['#43a047','#ff5252'],['#8e24aa','#ffd54f'],['#fb8c00','#1e88e5'],['#00acc1','#ffffff']];
+  const presents = [
+    [8.5,0.5,2.6,2,2.6,0.4],[-7,4.5,2.2,2.6,2.2,0.9],[3,-9,3,1.8,2.2,0.2],[-9,-3,2,1.6,2,1.3],[6,8,1.8,1.5,1.8,0.7],[-3,9.5,2.4,2.2,2.4,0.5]
+  ].map(([x,z,w,h,d,rot], i) => {
+    const pts = [], st = 0.2, [bc, rc] = pc[i];
+    const add = (lx, ly, lz) => {
+      const rib = Math.abs(lx) < 0.3 || Math.abs(lz) < 0.3;
+      const cr = Math.cos(rot), sr = Math.sin(rot);
+      pts.push({ x: x + lx * cr + lz * sr, y: ly, z: z - lx * sr + lz * cr, ch: rib ? '=' : '#', c: rib ? rc : bc });
+    };
+    for (let a = -w/2; a <= w/2; a += st) for (let b = -d/2; b <= d/2; b += st) add(a, h, b);
+    for (let a = -w/2; a <= w/2; a += st) for (let y = 0; y < h; y += st) { add(a, y, d/2); add(a, y, -d/2); }
+    for (let b = -d/2; b <= d/2; b += st) for (let y = 0; y < h; y += st) { add(w/2, y, b); add(-w/2, y, b); }
+    for (let k = 0; k < 60; k++) { const a = k / 60 * 6.283, rr = 0.25 + 0.5 * Math.abs(Math.sin(a * 2)); [-1, 1].forEach(s => pts.push({ x: x + s * Math.cos(a) * rr, y: h + 0.3 + Math.abs(Math.sin(a)) * 0.5, z: z, ch: '@', c: rc })); }
+    return { pts, t0: 17 + i * 0.85 };
+  });
+  const T_END = 17 + 6 * 0.85 + 0.8;
+
+  // ---------- renderização ----------
+  let start = performance.now();
+  document.getElementById('rs').onclick = () => { start = performance.now(); };
+  // zbuffer dinâmico
+  let Z = new Float32Array(1), CH = [], CL = [], AL = [];
+  function render(now) {
+    const t = (now - start) / 1000;
+    if (t > T_END + 14) start = now;
+    ctx.fillStyle = '#04060c'; ctx.fillRect(0, 0, W, H);
+    const N = cols * rows;
+    if (Z.length !== N) { Z = new Float32Array(N); CH = new Array(N); CL = new Array(N); AL = new Float32Array(N); }
+    Z.fill(-1e9); CH.fill(null);
+
+    // estrelas de fundo (escuridão com céu)
+    ctx.font = fs + 'px "Courier New", ui-monospace, monospace';
+    stars.forEach(s => {
+      ctx.globalAlpha = 0.25 + 0.35 * Math.sin(t * 1.5 + s.ph) ** 2;
+      ctx.fillStyle = '#9fb4d9'; ctx.fillText(s.ch, Math.floor(s.x * cols) * cw, Math.floor(s.y * rows) * chh);
+    });
+
+    const ang = t * 0.5, ca = Math.cos(ang), sa = Math.sin(ang), tilt = 0.3, ct = Math.cos(tilt), st = Math.sin(tilt);
+    const scale = Math.min(H * 0.62 / HT, W / 40), D = 60, cx = W / 2, cy = H * 0.5;
+    const g = clamp((t - 2.5) / 5.5), gh = ease(g) * (HT + 0.5);
+
+    function plot(x, y, z, ch, color, a) {
+      const x1 = x * ca + z * sa, z1 = -x * sa + z * ca, yy = y - 9;
+      const y2 = yy * ct - z1 * st, z2 = yy * st + z1 * ct, f = D / (D - z2);
+      const col = Math.floor((cx + x1 * scale * f) / cw), row = Math.floor((cy - y2 * scale * f) / chh);
+      if (col < 0 || row < 0 || col >= cols || row >= rows) return;
+      const i = row * cols + col; if (z2 <= Z[i]) return;
+      Z[i] = z2; CH[i] = ch; CL[i] = color; AL[i] = a * clamp(0.4 + 0.6 * (z2 + 14) / 28, 0.25, 1);
+    }
+
+    // chão
+    const gA = clamp(t / 2) * 0.5;
+    ground.forEach(p => { if (p.d < 17 * clamp((t - 0.5) / 3)) plot(p.x, 0, p.z, p.d % 3 < 0.2 ? ':' : '.', '#aab8d0', gA * (1 - p.d / 22)); });
+
+    // tronco e folhas surgindo do chão
+    if (t > 2.5) {
+      trunk.forEach(p => { if (p.y <= gh) plot(p.x, p.y, p.z, p.ch, p.c, 1); });
+      foliage.forEach(p => { if (p.y <= gh) plot(p.x, p.y, p.z, p.ch, p.c, 1); });
+    }
+    // enfeites
+    ornaments.forEach(o => {
+      if (t < o.t0) return;
+      const pop = clamp((t - o.t0) / 0.4), tw = 0.6 + 0.4 * Math.sin(t * 3 + o.ph);
+      const oa = pop * (0.7 + 0.3 * tw), oy = pop < 1 ? '.' : null;
+      [[0,0,0],[.22,0,0],[-.22,0,0],[0,.22,0],[0,-.22,0],[0,0,.22],[.15,.15,0],[-.15,-.15,0]].forEach(([dx,dy,dz],j) =>
+        plot(o.x + dx, o.y + dy, o.z + dz, oy || (j === 0 ? '@' : 'O'), o.c, oa));
+    });
+    // pisca-pisca
+    lights.forEach(l => {
+      if (t < T_STAR + 0.3 + l.s * 1.8) return;
+      if (!l.bulb) { plot(l.x, l.y, l.z, '.', '#2a7a3a', 0.8); return; }
+      if (Math.sin(t * 4 + l.g * 2.1) > -0.2) [[0,0,0,'@'],[.18,0,0,'*'],[-.18,0,0,'*'],[0,.18,0,'*'],[0,-.18,0,'*']].forEach(([dx,dy,dz,ch]) => plot(l.x + dx, l.y + dy, l.z + dz, ch, l.c, 1));
+      else plot(l.x, l.y, l.z, 'o', l.c, 0.25);
+    });
+    // estrela do topo
+    if (t > T_STAR) {
+      const k = clamp((t - T_STAR) / 0.8), p = 0.75 + 0.25 * Math.sin(t * 5);
+      for (let m = 0; m < 5; m++) { const a = m / 5 * 6.283 + 1.57;
+        for (let r = 0; r <= 1.3; r += 0.1) { plot(Math.cos(a) * r * 0.5, 20.9 + Math.sin(a) * r, 0, r < 0.3 ? '@' : '*', '#ffe066', k * p);
+          plot(0, 20.9 + Math.sin(a) * r, Math.cos(a) * r * 0.5, '*', '#ffe066', k * p); } }
+    }
+    // presentes caindo
+    presents.forEach(pr => {
+      if (t < pr.t0) return;
+      const yo = (1 - ease((t - pr.t0) / 0.7)) * 14;
+      pr.pts.forEach(p => plot(p.x, p.y + yo, p.z, p.ch, p.c, 1));
+    });
+
+    // desenhar grade
+    for (let i = 0; i < N; i++) {
+      if (!CH[i]) continue;
+      ctx.globalAlpha = AL[i]; ctx.fillStyle = CL[i];
+      ctx.fillText(CH[i], (i % cols) * cw, Math.floor(i / cols) * chh);
+    }
+    ctx.globalAlpha = 1;
+    cap.textContent = t < 2.5 ? 'Noite escura…' : t < 8.5 ? 'A árvore nasce do chão' : t < 17 ? 'Colocando os enfeites e o pisca-pisca' : 'Os presentes chegaram. Feliz Natal!';
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
